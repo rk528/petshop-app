@@ -1,9 +1,0 @@
-﻿{
-    "framework":  "nextjs",
-    "buildCommand":  "npm run build",
-    "env":  {
-                "DATABASE_URL":  "@database_url"
-            },
-    "devCommand":  "next dev",
-    "installCommand":  "npm ci"
-}
