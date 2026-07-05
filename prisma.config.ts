@@ -6,7 +6,4 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
   },
-  datasource: {
-    url: "postgresql://postgres:yoyo21@localhost:5432/petshop_1?schema=public",
-  },
 });
