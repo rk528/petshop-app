@@ -1,0 +1,396 @@
+// Pet Shop POS System - Database Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== USERS & AUTHENTICATION ====================
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String
+  role          UserRole  @default(CASHIER)
+  avatar        String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  sales         Sale[]
+  inventoryLogs InventoryLog[]
+  purchases     Purchase[]
+
+  @@map("users")
+}
+
+// ==================== CATEGORIES ====================
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  image       String?
+  parentId    String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Self-relation for hierarchical categories
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+
+  // Relations
+  products    Product[]
+
+  @@map("categories")
+}
+
+// ==================== PRODUCTS & VARIANTS ====================
+
+model Product {
+  id              String           @id @default(cuid())
+  sku             String           @unique
+  barcode         String?          @unique
+  name            String
+  description     String?
+  categoryId      String
+  supplierId      String?
+  basePrice       Decimal          @db.Decimal(10, 2)
+  costPrice       Decimal          @db.Decimal(10, 2)
+  taxRate         Decimal          @default(0) @db.Decimal(5, 2)
+  stockQuantity   Int              @default(0)
+  lowStockThreshold Int            @default(10)
+  unit            String           @default("unit")
+  image           String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Relations
+  category        Category         @relation(fields: [categoryId], references: [id])
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id])
+  variants        ProductVariant[]
+  inventoryLogs   InventoryLog[]
+  saleItems       SaleItem[]
+  purchaseItems   PurchaseItem[]
+  promotionProducts PromotionProduct[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id            String   @id @default(cuid())
+  productId     String
+  sku           String   @unique
+  barcode       String?  @unique
+  name          String   // e.g., "Small", "Medium", "Large"
+  attributes    Json?    // e.g., { "size": "500g", "color": "red" }
+  priceModifier Decimal  @default(0) @db.Decimal(10, 2) // Add/subtract from base price
+  costModifier  Decimal  @default(0) @db.Decimal(10, 2)
+  stockQuantity Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryLogs InventoryLog[]
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+
+  @@map("product_variants")
+}
+
+// ==================== INVENTORY MANAGEMENT ====================
+
+enum InventoryAction {
+  PURCHASE
+  SALE
+  ADJUSTMENT
+  RETURN
+  DAMAGED
+  EXPIRED
+  TRANSFER
+}
+
+model InventoryLog {
+  id              String          @id @default(cuid())
+  productId       String
+  variantId       String?
+  userId          String
+  action          InventoryAction
+  quantityChange  Int             // Positive for additions, negative for deductions
+  previousQuantity Int
+  newQuantity     Int
+  reason          String?
+  referenceType   String?         // "sale", "purchase", "adjustment"
+  referenceId     String?
+  createdAt       DateTime        @default(now())
+
+  // Relations
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+  user            User            @relation(fields: [userId], references: [id])
+
+  @@map("inventory_logs")
+}
+
+// ==================== SUPPLIERS & PURCHASES ====================
+
+model Supplier {
+  id          String     @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  country     String?
+  contactName String?
+  notes       String?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  products    Product[]
+  purchases   Purchase[]
+
+  @@map("suppliers")
+}
+
+enum PurchaseStatus {
+  PENDING
+  ORDERED
+  SHIPPED
+  RECEIVED
+  CANCELLED
+}
+
+model Purchase {
+  id            String         @id @default(cuid())
+  purchaseNumber String        @unique
+  supplierId    String
+  userId        String
+  status        PurchaseStatus @default(PENDING)
+  subtotal      Decimal        @db.Decimal(10, 2)
+  tax           Decimal        @default(0) @db.Decimal(10, 2)
+  shipping      Decimal        @default(0) @db.Decimal(10, 2)
+  total         Decimal        @db.Decimal(10, 2)
+  notes         String?
+  expectedDate  DateTime?
+  receivedDate  DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  items         PurchaseItem[]
+
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id          String          @id @default(cuid())
+  purchaseId  String
+  productId   String
+  variantId   String?
+  quantity    Int
+  unitCost    Decimal         @db.Decimal(10, 2)
+  total       Decimal         @db.Decimal(10, 2)
+  receivedQty Int             @default(0)
+  createdAt   DateTime        @default(now())
+
+  // Relations
+  purchase    Purchase        @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@map("purchase_items")
+}
+
+// ==================== PROMOTIONS & COUPONS ====================
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model Promotion {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  discountType DiscountType
+  discountValue Decimal    @db.Decimal(10, 2)
+  minPurchase Decimal?     @db.Decimal(10, 2)
+  maxDiscount Decimal?     @db.Decimal(10, 2) // Cap for percentage discounts
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  products    PromotionProduct[]
+  sales       Sale[]
+
+  @@map("promotions")
+}
+
+model PromotionProduct {
+  id          String    @id @default(cuid())
+  promotionId String
+  productId   String
+
+  // Relations
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([promotionId, productId])
+  @@map("promotion_products")
+}
+
+model Coupon {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  description String?
+  discountType DiscountType
+  discountValue Decimal    @db.Decimal(10, 2)
+  minPurchase Decimal?     @db.Decimal(10, 2)
+  maxDiscount Decimal?     @db.Decimal(10, 2)
+  maxUses     Int?
+  usedCount   Int          @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  sales       Sale[]
+
+  @@map("coupons")
+}
+
+// ==================== SALES & TRANSACTIONS ====================
+
+enum PaymentMethod {
+  CASH
+  CARD
+  DIGITAL_WALLET
+  BANK_TRANSFER
+  MIXED
+}
+
+enum SaleStatus {
+  COMPLETED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  VOIDED
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  receiptNumber String        @unique
+  userId        String
+  promotionId   String?
+  couponId      String?
+  subtotal      Decimal       @db.Decimal(10, 2)
+  discountAmount Decimal      @default(0) @db.Decimal(10, 2)
+  taxAmount     Decimal       @default(0) @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  amountPaid    Decimal       @db.Decimal(10, 2)
+  changeGiven   Decimal       @default(0) @db.Decimal(10, 2)
+  status        SaleStatus    @default(COMPLETED)
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  user          User          @relation(fields: [userId], references: [id])
+  promotion     Promotion?    @relation(fields: [promotionId], references: [id])
+  coupon        Coupon?       @relation(fields: [couponId], references: [id])
+  items         SaleItem[]
+
+  @@map("sales")
+}
+
+model SaleItem {
+  id            String          @id @default(cuid())
+  saleId        String
+  productId     String
+  variantId     String?
+  productName   String          // Snapshot at time of sale
+  variantName   String?
+  quantity      Int
+  unitPrice     Decimal         @db.Decimal(10, 2)
+  discount      Decimal         @default(0) @db.Decimal(10, 2)
+  taxRate       Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount     Decimal         @default(0) @db.Decimal(10, 2)
+  total         Decimal         @db.Decimal(10, 2)
+  createdAt     DateTime        @default(now())
+
+  // Relations
+  sale          Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product       Product         @relation(fields: [productId], references: [id])
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@map("sale_items")
+}
+
+// ==================== SETTINGS ====================
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  type      String   @default("string") // string, number, boolean, json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// ==================== AUDIT LOG ====================
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  userId        String?     // Who made the change
+  userName      String?     // Snapshot of user name at time of change
+  entityType    String      // "Product", "Category", "Promotion", etc.
+  entityId      String      // ID of the changed entity
+  entityName    String?     // Human-readable name (e.g., product name)
+  action        AuditAction
+  previousData  Json?       // Data before the change
+  newData       Json?       // Data after the change
+  changedFields String[]    // List of fields that were changed
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
